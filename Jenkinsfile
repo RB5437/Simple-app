@@ -1,78 +1,112 @@
+
+
 pipeline {
-  agent any
-  environment {
-    DOCKER_IMAGE = 'ritik2909/sample-app'
-    DOCKER_TAG   = "${BUILD_NUMBER}"
-    EC2_HOST     = 'ubuntu@13.201.119.240'
-  }
+    agent any
 
-  stages {
-    stage('Checkout') {
-      steps {
-        echo 'Pulling source code from GitHub...'
-        checkout scm
-      }
+    // ---- Change these 2 values to your own ----
+    environment {
+        DOCKERHUB_USER        = 'ritik2909'         
+        IMAGE_NAME            = "${DOCKERHUB_USER}/sample-app"
+        IMAGE_TAG             = "${BUILD_NUMBER}"                  
+        EC2_HOST              = '65.0.129.176'              
+        EC2_USER              = 'ubuntu'
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')    
     }
 
-    stage('Build Docker Image') {
-      steps {
-        echo 'Building Docker image...'
-        sh 'docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .'
-        sh 'docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest'
-      }
-    }
+    stages {
 
-    stage('Run Tests') {
-      steps {
-        echo 'Running tests inside container...'
-        sh '''
-          docker run --rm \
-            -v $(pwd)/app:/app \
-            -w /app node:18-alpine \
-            sh -c "npm install && npm test"
-        '''
-      }
-    }
-
-    stage('Push to Docker Hub') {
-      steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'dockerhub-creds',
-          usernameVariable: 'ritik2909',
-          passwordVariable: 'dckr_pat_IK0npolCcEk-q5EBOZYy6268w7s'
-        )]) {
-          sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
-          sh 'docker push ${DOCKER_IMAGE}:${DOCKER_TAG}'
-          sh 'docker push ${DOCKER_IMAGE}:latest'
+        // ---- STAGE 1: Pull latest code from GitHub ----
+        stage('Checkout') {
+            steps {
+                echo "=== STAGE 1: Checkout code from GitHub ==="
+                checkout scm
+            }
         }
-      }
-    }
 
-    stage('Deploy to EC2') {
-      steps {
-        sshagent(['ec2-ssh-key']) {
-          sh '''
-            ssh -o StrictHostKeyChecking=no ${EC2_HOST} "
-              docker pull ${DOCKER_IMAGE}:latest
-              docker stop sample-app || true
-              docker rm   sample-app || true
-              docker run -d -p 80:3000 \
-                --name sample-app \
-                --restart always \
-                ${DOCKER_IMAGE}:latest
-            "
-          '''
+        // ---- STAGE 2: Build Docker image ----
+        stage('Build Docker Image') {
+            steps {
+                echo "=== STAGE 2: Building Docker image ==="
+                script {
+                    sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+                    sh "docker tag  ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest"
+                    echo "Image built: ${IMAGE_NAME}:${IMAGE_TAG}"
+                }
+            }
         }
-      }
-    }
-  }
 
-  post {
-    success { echo 'Pipeline succeeded! App deployed.' }
-    failure { echo 'Pipeline failed. Check logs above.' }
-    always  {
-      sh 'docker logout || true'
-      sh 'docker image prune -f || true'
+        // ---- STAGE 3: Run tests inside container ----
+        stage('Test') {
+            steps {
+                echo "=== STAGE 3: Running tests ==="
+                script {
+                    sh """
+                        docker run --rm \
+                          -e NODE_ENV=test \
+                          ${IMAGE_NAME}:${IMAGE_TAG} \
+                          sh -c "npm install && npm test"
+                    """
+                }
+            }
+        }
+
+        // ---- STAGE 4: Push image to Docker Hub ----
+        stage('Push to Docker Hub') {
+            steps {
+                echo "=== STAGE 4: Pushing image to Docker Hub ==="
+                script {
+                    sh "echo ${DOCKERHUB_CREDENTIALS_PSW} | docker login -u ${DOCKERHUB_CREDENTIALS_USR} --password-stdin"
+                    sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker push ${IMAGE_NAME}:latest"
+                    echo "Pushed: ${IMAGE_NAME}:${IMAGE_TAG}"
+                }
+            }
+        }
+
+        // ---- STAGE 5: Deploy to EC2 ----
+        stage('Deploy to EC2') {
+            steps {
+                echo "=== STAGE 5: Deploying to EC2 ==="
+                sshagent(['ec2-ssh-key']) {                         // 'ec2-ssh-key' set in Jenkins > Credentials
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
+                            echo "Pulling latest image..."
+                            docker pull ${IMAGE_NAME}:latest
+
+                            echo "Stopping old container..."
+                            docker stop sample-app 2>/dev/null || true
+                            docker rm   sample-app 2>/dev/null || true
+
+                            echo "Starting new container..."
+                            docker run -d \
+                              --name sample-app \
+                              -p 80:3000 \
+                              --restart always \
+                              -e NODE_ENV=production \
+                              ${IMAGE_NAME}:latest
+
+                            echo "Deployment done. Container status:"
+                            docker ps | grep sample-app
+                        '
+                    """
+                }
+            }
+        }
+
+    } // end stages
+
+    // ---- Post-build actions ----
+    post {
+        success {
+            echo "SUCCESS: Pipeline finished. App live at http://${EC2_HOST}"
+        }
+        failure {
+            echo "FAILED: Check the logs above for errors."
+        }
+        always {
+            sh "docker logout || true"
+            sh "docker image prune -f || true"
+        }
     }
-  }
-}
+
+} // end pipeline
