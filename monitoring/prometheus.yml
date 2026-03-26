@@ -1,14 +1,12 @@
 global:
   scrape_interval: 15s
-  evaluation_interval: 15s
 
 scrape_configs:
   - job_name: 'sample-app'
     static_configs:
-      - targets: ['3.110.167.115:3000']
-    metrics_path: '/metrics'
+      - targets: ['sample-app-service:80']
 
   - job_name: 'node-exporter'
     static_configs:
-      - targets: ['3.110.167.115:9090']
+      - targets: ['node-exporter:9100']
 
