@@ -67,7 +67,7 @@ pipeline {
         stage('Deploy to EC2') {
             steps {
                 echo "=== STAGE 5: Deploying to EC2 ==="
-                sshagent(['ec2-ssh-key']) {                         // 'ec2-ssh-key' set in Jenkins > Credentials
+                sshagent(['ec2-ssh-key']) {                         
                     sh """
                         ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
                             echo "Pulling latest image..."
