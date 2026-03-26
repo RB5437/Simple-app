@@ -8,7 +8,7 @@ pipeline {
         DOCKERHUB_USER        = 'ritik2909'         
         IMAGE_NAME            = "${DOCKERHUB_USER}/sample-app"
         IMAGE_TAG             = "${BUILD_NUMBER}"                  
-        EC2_HOST              = '65.0.129.176'              
+        EC2_HOST              = '13.201.96.214'              
         EC2_USER              = 'ubuntu'
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')    
     }
